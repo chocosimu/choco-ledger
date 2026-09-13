@@ -129,10 +129,13 @@ function questReward(dateStr) {
 }
 
 // ---- 4.2 出品手数料。切り上げ（U-10 解消済み。当初「切り捨て」としていたが訂正） ----
-function calcFee(price, qty, premiumActive) {
+//
+// sell.list / sell.sold の price は「その出品ひとまとめの総額」。
+// ゲームのバザー画面が個数をまとめて1つの値段で出すため、購入の total_price と
+// 同じ考え方に揃えてある。1個あたりを知りたいときは price / qty。
+function calcFee(total, premiumActive) {
   if (premiumActive) return 0;
-  const total = price * qty;
-  if (total <= 0) return 0;
+  if (!total || total <= 0) return 0;
   return Math.ceil(total * 0.01);
 }
 
@@ -451,8 +454,11 @@ function inventorySummary(events) {
     const r = touch(ev.item_id);
     const qty = ev.qty || 1;
     r.listed += qty;
-    r.listedCost += (ev.unit_cost != null ? ev.unit_cost : 0) * qty;
-    r.listedPrice += (ev.price || 0) * qty;
+    r.listedCost +=
+      ev.total_cost != null
+        ? ev.total_cost
+        : (ev.unit_cost != null ? ev.unit_cost : 0) * qty;
+    r.listedPrice += ev.price || 0; // price は総額
   }
 
   const rows = [...byKey.values()]
@@ -517,7 +523,7 @@ function inventoryDetail(events, itemName) {
       const u = units[i++];
       u.status = status; // listed または sold
       u.listedTs = ev.ts;
-      u.price = ev.price;
+      u.price = (ev.price || 0) / (ev.qty || 1); // 総額を個数で割って1個あたりに
       u.recordedCost = ev.unit_cost;
       u.origin = ev.origin || null;
     }
@@ -553,7 +559,7 @@ function computeProfit(events) {
     const list = listings.get(ev.listing_id);
     const itemId = list ? list.item_id : "(不明)";
     const qty = ev.qty || 1;
-    const revenue = (ev.price || 0) * qty;
+    const revenue = ev.price || 0; // price は総額なので個数を掛けない
     const fee = list ? list.fee || 0 : 0;
 
     const origin = list && list.origin ? list.origin : null;
@@ -569,8 +575,18 @@ function computeProfit(events) {
       }
     }
 
-    const known = unitCost != null;
-    const cost = known ? unitCost * qty : null;
+    // 原価の合計。
+    //
+    // ロット内の1個あたりは均一ではない（端数を最後の1個が引き受けるため、
+    // 12,050ptの6個なら 2008×5 + 2010）。丸めた平均を個数で掛けると
+    // ロットの総額と合わなくなるので、出品時に焼き付けた total_cost を優先する。
+    // 無い場合（1個ずつの過去の記録など）は unit_cost から求める。
+    const known = list && list.total_cost != null ? true : unitCost != null;
+    const cost = known
+      ? list && list.total_cost != null
+        ? list.total_cost
+        : unitCost * qty
+      : null;
     const profit = known ? revenue - cost - fee : null;
 
     totalRevenue += revenue;
@@ -611,7 +627,7 @@ function balanceDelta(ev) {
     case "sell.list":
       return -ev.fee;
     case "sell.sold":
-      return ev.price * ev.qty;
+      return ev.price; // price は出品ひとまとめの総額
     case "spend.other":
       return -ev.amount;
     // 状態イベント・別勘定・検算アンカーは残高に影響しない
@@ -787,7 +803,7 @@ function premiumFeeSavings(allEvents) {
   for (const ev of events) {
     if (ev.type !== "sell.list") continue;
     if (!isPremiumActiveAt(events, ev.ts)) continue;
-    const wouldBeFee = calcFee(ev.price, ev.qty, false);
+    const wouldBeFee = calcFee(ev.price, false);
     savings += wouldBeFee; // 実際に徴収された fee は 0 のはず
   }
   return savings;

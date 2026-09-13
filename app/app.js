@@ -1108,9 +1108,50 @@ function updateSuggestedFee() {
   const price = Number(document.getElementById("list-price").value) || 0;
   const qty = Number(document.getElementById("list-qty").value) || 1;
   const premium = isPremiumActiveAt(EVENTS, nowLocalISO());
-  listFeeInput.value = calcFee(price, qty, premium);
+  listFeeInput.value = calcFee(price, premium);
 }
 document.getElementById("list-price").addEventListener("input", updateSuggestedFee);
+
+// 総額で入力するため、複数個のときに1個あたりがいくらか分からなくなる。
+// 原価と見比べられないと利ざやの判断ができないので、その場に出す。
+function updateListPriceNote() {
+  const note = document.getElementById("list-price-note");
+  if (!note) return;
+  const total = Number(document.getElementById("list-price").value);
+  const qty = Number(document.getElementById("list-qty").value) || 1;
+  if (!total || qty <= 1) {
+    note.textContent = "";
+    return;
+  }
+  const each = total / qty;
+
+  // 利ざやは合計から求める。1個あたりを丸めて個数で掛けると、ロット内の
+  // 1個あたりが均一でないぶん合計と食い違う（242×6=1,452 と 1,450 のように）。
+  // 合計を正として、1個あたりは平均であることが分かる形で添える。
+  const name = document.getElementById("list-item").value.trim();
+  const c = name ? fifoCostOf(EVENTS, name, qty) : null;
+  let costTotal = null;
+  if (!costManuallyEdited && c && c.short === 0) {
+    costTotal = c.totalCost;
+  } else {
+    const unit = Number(listCostInput.value);
+    if (unit) costTotal = unit * qty;
+  }
+
+  let margin = "";
+  if (costTotal != null) {
+    const m = total - costTotal;
+    const per = m / qty;
+    margin =
+      `　利ざや 全体${Math.round(m).toLocaleString()}pt` +
+      `（1個あたり平均 ${(Math.round(per * 10) / 10).toLocaleString()}pt）`;
+  }
+  note.textContent =
+    `1個あたり ${Math.round(each).toLocaleString()}pt（${total.toLocaleString()} ÷ ${qty}個）${margin}`;
+}
+document.getElementById("list-price").addEventListener("input", updateListPriceNote);
+document.getElementById("list-qty").addEventListener("input", updateListPriceNote);
+document.getElementById("list-item").addEventListener("change", updateListPriceNote);
 document.getElementById("list-qty").addEventListener("input", updateSuggestedFee);
 
 document.getElementById("form-list").addEventListener("submit", async (ev) => {
@@ -1144,6 +1185,22 @@ document.getElementById("form-list").addEventListener("submit", async (ev) => {
     alert("由来を選んでください（仕入れ品か、自力入手か）。");
     return;
   }
+  // 原価の合計も焼き付ける。
+  //
+  // unit_cost は入力欄の表示に合わせて小数1桁に丸めている。まとめ出品で
+  // これを個数で掛けると、ロットの総額とわずかにずれる（12,050ptの6個なら
+  // 2008.3×6 = 12,049.8）。端数を1ptも狂わせない方式を保つため、
+  // 先入先出で求めた正確な合計を別に持たせる。
+  // 原価を手で直したときは、その値を尊重して個数を掛ける。
+  let total_cost = null;
+  if (origin === "self") {
+    total_cost = 0;
+  } else if (!costManuallyEdited) {
+    const c = fifoCostOf(EVENTS, item_id, qty);
+    if (c && c.short === 0) total_cost = c.totalCost;
+  }
+  if (total_cost == null && unit_cost != null) total_cost = unit_cost * qty;
+
   await record({
     type: "sell.list",
     item_id,
@@ -1151,6 +1208,7 @@ document.getElementById("form-list").addEventListener("submit", async (ev) => {
     qty,
     fee,
     unit_cost: origin === "self" ? 0 : unit_cost,
+    total_cost,
     origin,
     listing_id: newId("lst"),
   });
@@ -1508,9 +1566,10 @@ function describeEvent(e) {
     }
     case "sell.list": {
       const o = e.origin === "self" ? "・自力入手" : e.origin === "purchase" ? "・仕入れ品" : "";
-      return `出品${o}: ${escapeHtml(e.item_id)} ×${e.qty} @${e.price}pt（手数料${e.fee}pt）`;
+      const each = e.qty > 1 ? `（1個${Math.round(e.price / e.qty).toLocaleString()}pt）` : "";
+      return `出品${o}: ${escapeHtml(e.item_id)} ×${e.qty} 総額${e.price.toLocaleString()}pt${each}（手数料${e.fee}pt）`;
     }
-    case "sell.sold": return `売却: ×${e.qty} @${e.price}pt`;
+    case "sell.sold": return `売却: ×${e.qty} 総額${e.price.toLocaleString()}pt`;
     case "sell.cancel": return `出品取消`;
     case "sell.expired": return `期限切れ`;
     case "spend.cash": return `現金支出 ¥${e.amount_jpy}（${e.purpose}）`;
