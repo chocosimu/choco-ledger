@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>チョコスター帳簿</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header>
+  <h1>チョコスター帳簿</h1>
+  <div>
+    <span id="conn-status" class="disconnected">未接続</span>
+    <button id="btn-connect" class="small">ledger/data を開く</button>
+  </div>
+</header>
+
+<main id="app" hidden>
+
+  <!-- 残高は最頻出の操作。タブ切り替えの影響を受けず常に見える位置に固定する。 -->
+  <section class="panel sticky-balance">
+    <div class="balance-hero">
+      <span class="num" id="running-balance">—</span>
+      <span class="unit">pt（帳簿上）</span>
+      <form id="form-observed" class="row balance-form">
+        <input type="number" id="observed-balance" min="0" placeholder="今の所持チョコスター" required />
+        <button type="submit">記録</button>
+      </form>
+    </div>
+    <div id="discrepancy-area"></div>
+  </section>
+
+  <nav class="tabs" id="tab-nav">
+    <button class="tab-btn active" data-tab="quest">デイリークエスト</button>
+    <button class="tab-btn" data-tab="trade">取引</button>
+    <button class="tab-btn" data-tab="stock">在庫</button>
+    <button class="tab-btn" data-tab="profit">損益</button>
+    <button class="tab-btn" data-tab="state">状態・現金</button>
+    <button class="tab-btn" data-tab="log">最近の記録</button>
+  </nav>
+
+  <div class="tab-panel" data-tab-panel="quest">
+    <section class="panel">
+      <h2>デイリークエスト</h2>
+      <div id="quest-area"></div>
+    </section>
+  </div>
+
+  <div class="tab-panel" data-tab-panel="trade" hidden>
+    <div class="two-col">
+      <section class="panel">
+        <h2>購入</h2>
+
+        <details id="gemini-settings" class="gemini-settings">
+          <summary>画像読み取りの設定（Gemini APIキー）</summary>
+          <div class="row" style="margin-top:8px">
+            <div class="field grow">
+              <label>Gemini APIキー</label>
+              <input type="password" id="gemini-key" placeholder="AIza..." />
+            </div>
+            <button type="button" id="gemini-fetch-models" class="small secondary">モデル一覧を取得</button>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <div class="field grow">
+              <label>使用するモデル</label>
+              <select id="gemini-model"><option value="">（未取得）</option></select>
+            </div>
+          </div>
+          <p class="hint" id="gemini-status">
+            キーは このブラウザーの localStorage にのみ保存されます（ledger/data や Git には書き込まれません）。
+            未設定の場合は、下のOCR(Tesseract)にフォールバックします。
+          </p>
+        </details>
+
+        <div id="buy-ocr-drop" class="ocr-drop" tabindex="0">
+          スクリーンショットをここにドラッグ＆ドロップ／貼り付け(Ctrl+V)／クリックして選択<br />
+          <span class="muted">読み取った内容は下のフォームに仮入力されます。必ず確認してから記録してください。</span>
+        </div>
+        <input type="file" id="buy-ocr-file" accept="image/*" hidden />
+        <p class="hint" id="buy-ocr-status"></p>
+
+        <form id="form-buy" class="row">
+          <div class="field grow">
+            <label>アイテム名（空欄でも可・後で直接編集可）</label>
+            <input type="text" id="buy-item" list="item-names" />
+          </div>
+          <div class="field">
+            <label>総額(pt)（購入確認画面の表示額そのまま）</label>
+            <input type="number" id="buy-price" min="0" required />
+          </div>
+          <div class="field">
+            <label>個数</label>
+            <input type="number" id="buy-qty" min="1" value="1" required />
+          </div>
+          <div class="field">
+            <label>用途</label>
+            <select id="buy-purpose">
+              <option value="stock">在庫用（売る）</option>
+              <option value="use">消耗品・私用（使う）</option>
+            </select>
+          </div>
+          <button type="submit">記録</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>出品</h2>
+        <form id="form-list" class="row">
+          <div class="field grow">
+            <label>アイテム名</label>
+            <input type="text" id="list-item" list="item-names" required />
+          </div>
+          <div class="field">
+            <label>出品価格(pt)</label>
+            <input type="number" id="list-price" min="0" required />
+          </div>
+          <div class="field">
+            <label>個数</label>
+            <input type="number" id="list-qty" min="1" value="1" required />
+          </div>
+          <div class="field">
+            <label>由来</label>
+            <select id="list-origin" required>
+              <option value="">選んでください</option>
+              <option value="purchase">仕入れ品（転売）</option>
+              <option value="self">自力入手（ドロップ等）</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>原価(1個あたり・自動)</label>
+            <input type="number" id="list-cost" min="0" step="0.1" />
+            <small id="list-cost-note" class="muted"></small>
+          </div>
+          <div class="field">
+            <label>手数料(既定値・訂正可)</label>
+            <input type="number" id="list-fee" min="0" />
+          </div>
+          <button type="submit">出品する</button>
+        </form>
+        <p class="hint" id="premium-hint"></p>
+      </section>
+    </div>
+
+    <section class="panel">
+      <h2>出品中の一覧</h2>
+      <div id="slots-area"></div>
+      <table>
+        <thead>
+          <tr><th>アイテム</th><th>価格</th><th>個数</th><th>手数料</th><th>出品日</th><th>状態</th><th></th></tr>
+        </thead>
+        <tbody id="listings-body"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <div class="tab-panel" data-tab-panel="stock" hidden>
+    <section class="panel">
+      <h2>在庫</h2>
+      <p class="hint">
+        仕入れた物は「待機中（倉庫にあり、まだ出品していない）」か「出品中（バザーに並んでいる）」の
+        どちらかにある。出品枠には上限があるので、在庫があっても並べられるとは限らない。
+        消耗品・私用として買った物は、使った分を記録していないため、ここには出さない。
+      </p>
+      <div id="stock-summary"></div>
+      <table>
+        <thead>
+          <tr>
+            <th>アイテム</th><th>待機中</th><th>待機の原価</th>
+            <th>出品中</th><th>出品の原価</th><th>売れたときの売上</th><th>合計個数</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="stock-body"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <div class="tab-panel" data-tab-panel="profit" hidden>
+    <section class="panel">
+      <h2>実現損益</h2>
+      <p class="hint">
+        売れた出品ごとに「売上 − 原価 − 出品手数料」を集計する。原価は出品時に記録した値、
+        無ければ購入履歴から先入先出で補う。どちらも無いものは「原価不明」として合計から外す
+        （0ptと決めつけない）。消耗品・私用として買った分はここには含めず、下に別に出す。
+      </p>
+      <div id="profit-summary"></div>
+      <div id="personal-spending"></div>
+      <table>
+        <thead><tr><th>売却日時</th><th>アイテム</th><th>個数</th><th>売上</th><th>原価</th><th>手数料</th><th>損益</th></tr></thead>
+        <tbody id="profit-body"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <!-- ============================================================
+       相場タブ（2026-09-12 保留）
+
+       利用者の判断により、相場の把握は本人が直接行う方が早いとして
+       このタブを UI から外した。コードもデータも消していない。
+       ledger/data/market/*.jsonl と items.json はそのまま残している。
+
+       復帰させるとき:
+         1. 下の HTML コメントを外す
+         2. index.html のタブ一覧に
+            <button class="tab-btn" data-tab="market">相場</button> を戻す
+         3. app.js の「相場タブの配線（保留中）」の if (MARKET_TAB_ENABLED) を true にする
+       ============================================================ -->
+  <!--
+  <div class="tab-panel" data-tab-panel="market" hidden>
+    <section class="panel">
+      <h2>相場の取り込み（バザー画面の録画から）</h2>
+      <p class="hint">
+        バザーを眺めているだけの録画から、出品されていたアイテム・価格を自動で拾い出す。
+        購入・出品の操作の記録ではないので残高には影響しない。品名は「購入」「出品」フォームと
+        同じゲーム内表示名で保存されるので、後から突き合わせられる。
+      </p>
+      <div id="market-video-drop" class="ocr-drop" tabindex="0">
+        バザー画面を映した動画をここにドラッグ＆ドロップ、または貼り付け(Ctrl+V)、またはクリックして選択<br />
+        <span class="muted">Gemini APIキーが必要（「取引」タブの設定で登録したものを共用）。</span>
+      </div>
+      <input type="file" id="market-video-file" accept="video/*" hidden />
+      <p class="hint" id="market-status"></p>
+
+      <table id="market-review-table" hidden>
+        <thead>
+          <tr><th></th><th>アイテム</th><th>価格</th><th>個数</th><th>残り日数</th><th>強化レベル</th><th>特殊コア</th><th>出品数</th><th>表記の確認</th></tr>
+        </thead>
+        <tbody id="market-review-body"></tbody>
+      </table>
+      <button type="button" id="market-save-btn" class="small" hidden>相場をチェックした分を保存</button>
+
+      <h3 style="margin-top:16px">図鑑候補（価格を含まない、名前・ステータス等）</h3>
+      <table id="item-review-table" hidden>
+        <thead>
+          <tr><th></th><th>アイテム</th><th>種別</th><th>Lv帯</th><th>ステータス</th><th>特殊コア階級</th><th>表記の確認</th></tr>
+        </thead>
+        <tbody id="item-review-body"></tbody>
+      </table>
+      <button type="button" id="item-save-btn" class="small" hidden>図鑑をチェックした分を保存（マージ）</button>
+    </section>
+
+    <section class="panel">
+      <h2>取り込み履歴</h2>
+      <p class="hint">
+        同じ動画を複数回取り込むと観測が二重に積み上がる。誤って取り込んだ分は
+        ここでまとめて取り消せる（記録は消さず、打ち消す記録を追記する）。
+      </p>
+      <div id="market-batches"></div>
+    </section>
+
+    <section class="panel">
+      <h2>取り込み済みの相場（品目別・直近観測）</h2>
+      <p class="hint">
+        <b>価格はすべて単価（価格÷個数）で表示している。</b>総額のまま比べると、まとめ売りが
+        高い出品に見えてしまうため（実例：特殊コアⅥ[蒼穹] は 1400pt×14個 が単価100ptで最安だった）。
+        検索結果は安い順に並び全件は見えないので、これは「安い方から数件」であり板全体の分布ではない。
+        また品名だけで集計しているため、装備は強化レベルや個体差が混ざる。
+      </p>
+      <p id="market-summary-note" class="hint"></p>
+      <table>
+        <thead><tr><th>アイテム</th><th>最安単価<br><span class="muted">（直近）</span></th><th>単価の幅<br><span class="muted">（全観測）</span></th><th>出品数</th><th>観測</th><th>最終観測</th><th></th></tr></thead>
+        <tbody id="market-summary-body"></tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>アイテム図鑑（蓄積データ）</h2>
+      <p class="hint">
+        動画を読み込むたびに、既存の情報を壊さず空欄だけ埋めていく。件数が多い品ほど情報が充実する。
+      </p>
+      <table>
+        <thead><tr><th>アイテム</th><th>種別</th><th>Lv帯</th><th>ステータス</th><th>特殊コア階級</th><th>収集元数</th></tr></thead>
+        <tbody id="item-catalog-body"></tbody>
+      </table>
+    </section>
+  </div>
+
+  -->
+
+  <div class="tab-panel" data-tab-panel="state" hidden>
+    <div class="two-col">
+      <section class="panel">
+        <h2>状態（PREMIUMパス・倉庫）</h2>
+        <form id="form-premium" class="row">
+          <div class="field">
+            <label>PREMIUMパス</label>
+            <select id="premium-active">
+              <option value="true">加入中</option>
+              <option value="false">未加入</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>シーズン終了日</label>
+            <input type="date" id="premium-until" />
+          </div>
+          <button type="submit" class="small">更新</button>
+        </form>
+        <form id="form-storage" class="row" style="margin-top:10px">
+          <div class="field">
+            <label>所持倉庫数</label>
+            <input type="number" id="storage-count" min="0" />
+          </div>
+          <button type="submit" class="small">更新</button>
+        </form>
+        <p class="hint" id="storage-hint"></p>
+      </section>
+
+      <section class="panel">
+        <h2>現金支出（別勘定）</h2>
+        <form id="form-cash" class="row">
+          <div class="field">
+            <label>用途</label>
+            <select id="cash-purpose">
+              <option value="premium_pass">PREMIUMパス</option>
+              <option value="storage">倉庫</option>
+              <option value="other">その他</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>金額(円)</label>
+            <input type="number" id="cash-amount" min="0" required />
+          </div>
+          <button type="submit" class="small">記録</button>
+        </form>
+        <p class="hint" id="premium-roi-hint"></p>
+      </section>
+    </div>
+  </div>
+
+  <div class="tab-panel" data-tab-panel="log" hidden>
+    <section class="panel">
+      <h2>最近の記録</h2>
+      <p class="hint">
+        記録は書き換えず、追記のみで訂正する（設計方針1）。「訂正」は元の記録を取り消したうえで
+        新しい記録を追記する。取り消した記録は打ち消し線で残る。
+      </p>
+      <div class="row" style="margin-bottom:6px;align-items:flex-end">
+        <div class="field">
+          <label>種別で絞る</label>
+          <select id="log-filter-type">
+            <option value="">すべて</option>
+            <option value="buy">購入</option>
+            <option value="sell.list">出品</option>
+            <option value="sell.sold">売却</option>
+            <option value="sell.cancel|sell.expired">取消・期限切れ</option>
+            <option value="income.quest">デイリー</option>
+            <option value="balance.observed|state.storage|state.premium_pass">残高・状態</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>用途で絞る</label>
+          <select id="log-filter-purpose">
+            <option value="">すべて</option>
+            <option value="stock">在庫用（売る）</option>
+            <option value="use">消耗品・私用（使う）</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>表示件数</label>
+          <select id="log-limit">
+            <option value="40">直近40件</option>
+            <option value="100">直近100件</option>
+            <option value="0">すべて</option>
+          </select>
+        </div>
+        <label class="muted" style="padding-bottom:6px">
+          <input type="checkbox" id="log-show-voided" /> 取り消した記録も表示する
+        </label>
+      </div>
+      <p id="log-count" class="muted"></p>
+      <table>
+        <thead><tr><th>日時</th><th>種別</th><th>内容</th><th></th></tr></thead>
+        <tbody id="log-body"></tbody>
+      </table>
+    </section>
+  </div>
+
+</main>
+
+<!-- 常時表示の電卓。#app の外に置き、未接続状態でも使える。タブ切り替えの影響を受けない。 -->
+<div id="calculator" class="calculator">
+  <div class="calc-head">
+    <span>電卓</span>
+    <button type="button" id="calc-toggle" class="small secondary">－</button>
+  </div>
+  <div id="calc-body">
+    <input type="text" id="calc-display" readonly value="0" />
+    <div class="calc-grid">
+      <button type="button" data-calc="C">C</button>
+      <button type="button" data-calc="back">⌫</button>
+      <button type="button" data-calc="/">÷</button>
+      <button type="button" data-calc="*">×</button>
+
+      <button type="button" data-calc="7">7</button>
+      <button type="button" data-calc="8">8</button>
+      <button type="button" data-calc="9">9</button>
+      <button type="button" data-calc="-">－</button>
+
+      <button type="button" data-calc="4">4</button>
+      <button type="button" data-calc="5">5</button>
+      <button type="button" data-calc="6">6</button>
+      <button type="button" data-calc="+">＋</button>
+
+      <button type="button" data-calc="1">1</button>
+      <button type="button" data-calc="2">2</button>
+      <button type="button" data-calc="3">3</button>
+      <button type="button" data-calc="=" class="calc-eq" rowspan="2">＝</button>
+
+      <button type="button" data-calc="0" class="calc-zero">0</button>
+      <button type="button" data-calc=".">.</button>
+    </div>
+    <button type="button" id="calc-apply" class="small" style="width:100%; margin-top:6px">
+      フォーカス中の入力欄へ反映
+    </button>
+  </div>
+</div>
+
+<datalist id="item-names"></datalist>
+
+<!-- OCR（スクリーンショットからの仮入力）。初回利用時にネット越しに言語データを取得する。 -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="storage.js"></script>
+<script src="ledger.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
