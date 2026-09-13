@@ -271,8 +271,11 @@ function toggleStockDetail(tr, itemName) {
   const body = units
     .map((u, i) => {
       const waiting = u.status === "waiting";
-      const cost = u.recordedCost != null ? u.recordedCost : u.cost;
-      const margin = waiting || u.price == null ? null : u.price - cost;
+      // 利ざやは、左に出しているロット単価そのものから求める。
+      // 出品に焼き付けた unit_cost は丸めた平均（12,050ptの6個なら2008.3）なので、
+      // これで引くと全行が同じ値になり、2,010ptの行だけ合わなくなる。
+      // ロット単価で引けば、各行の利ざやの合計が原価合計とぴったり一致する。
+      const margin = waiting || u.price == null ? null : u.price - u.cost;
       return (
         "<tr>" +
         "<td>" + (i + 1) + "</td>" +
