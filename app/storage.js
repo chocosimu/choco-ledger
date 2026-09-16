@@ -159,10 +159,10 @@ const Storage = {
   // 記録のたびに更新するので、書き忘れて古くなることがない。
   async writeIndex() {
     try {
+      // 生成時刻は入れない（アプリは読まず、公開時に無駄な差分を生むため）
       const index = {
         events: await this.listEventFiles(),
         market: await this.listMarketFiles(),
-        generated: new Date().toISOString(),
       };
       await this.writeText("index.json", JSON.stringify(index, null, 2));
     } catch (e) {
