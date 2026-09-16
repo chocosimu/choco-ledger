@@ -201,4 +201,3 @@
 {"type":"sell.list","item_id":"ノクスカルクス・練","price":850,"qty":1,"fee":0,"unit_cost":800,"total_cost":800,"origin":"purchase","listing_id":"lst_e302625e-aa4e-471e-8fa8-5f40b970d13d","id":"fed14a7d-c5d2-458b-91b7-545254b7f9c4","ts":"2026-09-17T04:56:17+09:00"}
 {"type":"sell.sold","listing_id":"lst_3892ff83-2eb0-46b5-aee3-a77be26f34f6","price":1340,"qty":1,"id":"b851b831-0430-48ff-bc60-ca0ce17c5f07","ts":"2026-09-17T05:05:32+09:00"}
 {"type":"sell.list","item_id":"テックガントBOXIV[VIT]","price":1340,"qty":1,"fee":0,"unit_cost":1277,"total_cost":1277,"origin":"purchase","listing_id":"lst_c9ea30d3-c957-40ba-9ee4-62bea7e6ed2a","id":"7a24f677-3404-411e-80a3-67ee7ad5188f","ts":"2026-09-17T05:06:05+09:00"}
-{"type":"income.other","amount":0,"source":"見張りの動作確認","id":"watch-test-0001","ts":"2026-09-17T05:30:00+09:00"}
