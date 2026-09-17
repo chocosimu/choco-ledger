@@ -631,6 +631,7 @@ function balanceDelta(ev) {
     case "spend.other":
       return -ev.amount;
     // 状態イベント・別勘定・検算アンカーは残高に影響しない
+    case "quest.skip": // その日はやらなかった、という記録。収入は発生しない
     case "sell.cancel":
     case "sell.expired":
     case "state.premium_pass":
@@ -768,11 +769,20 @@ function isPremiumActiveAt(allEvents, atTs) {
 
 // ---- 4.3 デイリークエストの未記録日一覧 ----
 // from(YYYY-MM-DD) から today までのうち income.quest が無い日を返す。
+// やらなかった日を除いた、未記録のデイリークエストの日を返す。
+//
+// こなさなかった日は記録が無いので、いつまでも「未記録」として残り続ける。
+// 押し間違いのもとになるうえ、やる気のない日を責められているようで邪魔。
+// そこで quest.skip という「その日はやらなかった」記録を置けるようにした。
+// 記録を消すのではなく事実を1本足す形なので、追記式の方針から外れない。
 function missingQuestDays(allEvents, fromDateStr, toDateStr = todayDateStr()) {
   const events = activeEvents(allEvents);
   const recorded = new Set(
     events.filter((e) => e.type === "income.quest").map((e) => e.date)
   );
+  for (const e of events) {
+    if (e.type === "quest.skip") recorded.add(e.date);
+  }
   const missing = [];
   let d = new Date(fromDateStr + "T00:00:00");
   const end = new Date(toDateStr + "T00:00:00");

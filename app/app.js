@@ -444,7 +444,9 @@ function renderQuests() {
   for (const m of missing) {
     const label = document.createElement("label");
     label.className = "quest-day" + (m.weekend ? " weekend" : "");
-    label.innerHTML = `<input type="checkbox" /> ${m.date}（${"日月火水木金土"[weekdayOf(m.date)]}）${m.amount}pt`;
+    label.innerHTML =
+      `<input type="checkbox" /> ${m.date}（${"日月火水木金土"[weekdayOf(m.date)]}）${m.amount}pt` +
+      ` <button type="button" class="small secondary" data-skip="${m.date}" title="この日はやらなかった">×</button>`;
     label.querySelector("input").addEventListener("change", async (e) => {
       if (!e.target.checked) return;
       await record({
@@ -452,6 +454,16 @@ function renderQuests() {
         ts: m.date + "T21:00:00+09:00",
         date: m.date,
         amount: m.amount,
+      });
+    });
+    // こなさなかった日を一覧から外す。記録を消すのではなく
+    // 「やらなかった」という事実を1本足して、以後表示しない。
+    label.querySelector("[data-skip]").addEventListener("click", async (ev) => {
+      ev.preventDefault();
+      await record({
+        type: "quest.skip",
+        ts: m.date + "T23:59:59+09:00",
+        date: m.date,
       });
     });
     area.appendChild(label);
@@ -1477,7 +1489,7 @@ function renderLog() {
 
 // 訂正できるのは金額・数量を持つ記録だけ。listing_id で連鎖するものは扱いが複雑なので外す。
 const EDITABLE_TYPES = new Set([
-  "buy", "income.quest", "income.other", "spend.other", "spend.cash", "balance.observed",
+  "buy", "income.quest", "quest.skip", "income.other", "spend.other", "spend.cash", "balance.observed",
 ]);
 
 // 各種別の編集対象フィールド（ラベル, キー, 数値か）
@@ -1489,6 +1501,7 @@ const EDIT_FIELDS = {
     ["用途", "purpose", false, BUY_PURPOSES], // 4番目があるときは選択肢になる
   ],
   "income.quest": [["金額(pt)", "amount", true]],
+  "quest.skip": [["日付", "date", false]],
   "income.other": [["金額(pt)", "amount", true], ["内容", "source", false]],
   "spend.other": [["金額(pt)", "amount", true], ["理由", "reason", false]],
   "spend.cash": [["金額(円)", "amount_jpy", true], ["用途", "purpose", false]],
@@ -1563,6 +1576,7 @@ function describeEvent(e) {
   switch (e.type) {
     case "balance.observed": return `残高 ${e.balance.toLocaleString()}pt`;
     case "income.quest": return `デイリークエスト +${e.amount}pt（${e.date}）`;
+    case "quest.skip": return `デイリークエスト 未実施（${e.date}）`;
     case "buy": {
       const use = buyPurpose(e) === "use" ? "・私用" : "";
       return `購入${use}: ${escapeHtml(e.item_id)} ×${e.qty}（総額${e.total_price}pt）`;
