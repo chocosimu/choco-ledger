@@ -27,6 +27,7 @@ const {
   fifoCostOf,
   computeProfit,
   inventorySummary,
+  profitByDay,
   inventoryDetail,
   SELL_ORIGINS,
   BUY_PURPOSES,
@@ -256,6 +257,7 @@ function renderAll() {
   renderItemCatalog();
   renderProfit();
   renderStock();
+  renderProfitTrend();
 }
 
 // 1個ずつの明細を開閉する。同じ品でも仕入れ値が違うので、
@@ -301,6 +303,61 @@ function toggleStockDetail(tr, itemName) {
   row.dataset.detailFor = itemName;
   row.appendChild(td);
   tr.after(row);
+}
+
+// 日ごとの損益。棒は各日の利益を、その期間の最大値に対する割合で描く。
+// 外部の描画ライブラリは使わない（file:// で開くため、読み込めない）。
+function renderProfitTrend() {
+  const el = document.getElementById("profit-trend");
+  if (!el) return;
+
+  const days = profitByDay(EVENTS);
+  if (!days.length) {
+    el.innerHTML = '<p class="muted">まだ売却の記録がありません。</p>';
+    return;
+  }
+
+  const n = (v) => Math.round(v).toLocaleString();
+  const max = Math.max(...days.map((d) => Math.abs(d.profit)), 1);
+  const W = "日月火水木金土";
+
+  const body = days
+    .slice()
+    .reverse()
+    .map((d) => {
+      const w = (Math.abs(d.profit) / max) * 100;
+      const color = d.profit >= 0 ? "var(--ok)" : "var(--danger)";
+      const bar =
+        '<div style="background:' + color + ';height:10px;border-radius:2px;width:' + w.toFixed(1) + '%"></div>';
+      return (
+        "<tr>" +
+        "<td>" + d.date + "（" + W[weekdayOf(d.date)] + "）</td>" +
+        "<td>" + d.count + "</td>" +
+        "<td>" + d.units + "</td>" +
+        "<td>" + n(d.revenue) + "pt</td>" +
+        "<td>" + (d.cost ? n(d.cost) + "pt" : "") + "</td>" +
+        '<td style="color:' + color + '">' + (d.profit >= 0 ? "+" : "") + n(d.profit) + "pt</td>" +
+        "<td>" + (d.margin == null ? "" : (d.margin * 100).toFixed(1) + "%") + "</td>" +
+        "<td>" + n(d.cumulative) + "pt</td>" +
+        '<td style="min-width:90px">' + bar + "</td>" +
+        (d.unknown ? "<td>原価不明" + d.unknown + "件</td>" : "<td></td>") +
+        "</tr>"
+      );
+    })
+    .join("");
+
+  const totalProfit = days[days.length - 1].cumulative;
+  const totalRevenue = days.reduce((a, d) => a + d.revenue, 0);
+  const best = days.reduce((a, d) => (d.profit > a.profit ? d : a), days[0]);
+  const avg = totalProfit / days.length;
+
+  el.innerHTML =
+    '<p class="muted">' +
+    days.length + "日間 / 売上 " + n(totalRevenue) + "pt / 利益 " + n(totalProfit) + "pt / " +
+    "1日平均 " + n(avg) + "pt / 最良 " + best.date + "（" + n(best.profit) + "pt）</p>" +
+    "<table><thead><tr>" +
+    "<th>日付</th><th>売却</th><th>個数</th><th>売上</th><th>原価</th><th>利益</th><th>利益率</th><th>累計</th><th></th><th></th>" +
+    "</tr></thead><tbody>" + body + "</tbody></table>";
 }
 
 // --- 在庫 ---

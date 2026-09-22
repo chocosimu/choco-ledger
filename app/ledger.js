@@ -399,6 +399,46 @@ function unitCostOf(events, itemName, atTs) {
 // 過去に遡って0と決めつけると、確定していた損益が動いてしまうため。
 const SELL_ORIGINS = { purchase: "仕入れ品（転売）", self: "自力入手（ドロップ等）" };
 
+// ---- 損益の推移 ----
+//
+// 1日いくら稼げているかは、合計額だけ見ても分からない。
+// 仕入れ値が上がれば件数が同じでも利益は落ちるので、日ごとに並べて初めて
+// 「件数は出ているのに利益が薄い」といった変化に気づける。
+//
+// 原価不明の売却（ドロップ品など）は件数には数えるが、利益には足さない。
+// 0と決めつけないため。unknown に何件あったかを持たせる。
+function profitByDay(events) {
+  const { rows } = computeProfit(events);
+  const byDay = new Map();
+  for (const r of rows) {
+    const date = r.ts.slice(0, 10);
+    if (!byDay.has(date)) {
+      byDay.set(date, { date, count: 0, units: 0, revenue: 0, cost: 0, fee: 0, profit: 0, unknown: 0 });
+    }
+    const d = byDay.get(date);
+    d.count++;
+    d.units += r.qty || 0;
+    d.revenue += r.revenue || 0;
+    d.fee += r.fee || 0;
+    if (r.known) {
+      d.cost += r.cost || 0;
+      d.profit += r.profit || 0;
+    } else {
+      d.unknown++;
+    }
+  }
+
+  const days = [...byDay.values()].sort((a, b) => (a.date < b.date ? -1 : 1));
+  let running = 0;
+  for (const d of days) {
+    running += d.profit;
+    d.cumulative = running;
+    // 利益率は「原価が判明している分」に対して出す。原価不明を混ぜると意味が壊れる。
+    d.margin = d.cost > 0 ? d.profit / d.cost : null;
+  }
+  return days;
+}
+
 // ---- 在庫 ----
 //
 // 仕入れた物は2つの状態のどちらかにある。
@@ -842,6 +882,7 @@ window.Ledger = {
   lotUnitCosts,
   computeProfit,
   inventorySummary,
+  profitByDay,
   inventoryDetail,
   SELL_ORIGINS,
   weekdayOf,
