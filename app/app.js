@@ -1522,14 +1522,19 @@ function renderLog() {
     if (isVoided) tr.style.textDecoration = "line-through";
     if (isVoided) tr.style.opacity = "0.55";
 
-    const tdActions = READ_ONLY
-      ? ""
-      : EDITABLE_TYPES.has(e.type) && !isVoided
-      ? '<button class="small secondary" data-act="edit">訂正</button> ' +
-        '<button class="small secondary" data-act="void">取消</button>'
-      : isVoided
-      ? '<span class="muted">取消済</span>'
-      : "";
+    let tdActions = "";
+    if (READ_ONLY) {
+      tdActions = "";
+    } else if (isVoided) {
+      tdActions = '<span class="muted">取消済</span>';
+    } else if (EDITABLE_TYPES.has(e.type)) {
+      tdActions =
+        '<button class="small secondary" data-act="edit">訂正</button> ' +
+        '<button class="small secondary" data-act="void">取消</button>';
+    } else if (VOIDABLE_TYPES.has(e.type)) {
+      // 値は直せないが、取り消せば出品の状態が前に戻る
+      tdActions = '<button class="small secondary" data-act="void">取消</button>';
+    }
 
     tr.innerHTML =
       "<td>" + fmtDate(e.ts) + "</td><td>" + e.type + "</td><td>" +
@@ -1544,10 +1549,21 @@ function renderLog() {
   }
 }
 
-// 訂正できるのは金額・数量を持つ記録だけ。listing_id で連鎖するものは扱いが複雑なので外す。
+// 値を直せる記録。
+//
+// 売却も対象に入れる。売れていないものを売れたことにする押し間違いは実際に
+// 起きるし、そのままだと架空の売上と利益が残り続ける（19,999ptの誤記録が
+// 実際に発生した）。
 const EDITABLE_TYPES = new Set([
   "buy", "income.quest", "quest.skip", "income.other", "spend.other", "spend.cash", "balance.observed",
+  "sell.sold",
 ]);
+
+// 値は持たないが取り消せる記録。
+//
+// 取り消すと出品の状態が前に戻る（売却を取り消せば出品中に復帰する）。
+// 状態は記録から毎回組み立てているので、1本無効にするだけで整合が取れる。
+const VOIDABLE_TYPES = new Set(["sell.cancel", "sell.expired"]);
 
 // 各種別の編集対象フィールド（ラベル, キー, 数値か）
 const EDIT_FIELDS = {
@@ -1557,6 +1573,7 @@ const EDIT_FIELDS = {
     ["個数", "qty", true],
     ["用途", "purpose", false, BUY_PURPOSES], // 4番目があるときは選択肢になる
   ],
+  "sell.sold": [["総額(pt)", "price", true], ["個数", "qty", true]],
   "income.quest": [["金額(pt)", "amount", true]],
   "quest.skip": [["日付", "date", false]],
   "income.other": [["金額(pt)", "amount", true], ["内容", "source", false]],
@@ -1629,6 +1646,18 @@ document.getElementById("log-filter-type").addEventListener("change", renderLog)
 document.getElementById("log-filter-purpose").addEventListener("change", renderLog);
 document.getElementById("log-limit").addEventListener("change", renderLog);
 
+// 売却や取消の記録は listing_id しか持たない。どの出品のことか分からないと
+// 訂正する行を選べないので、出品の記録から品名を引いて添える。
+function listedItemName(listingId) {
+  if (!listingId) return "(不明)";
+  for (const ev of EVENTS) {
+    if (ev.type === "sell.list" && ev.listing_id === listingId) {
+      return escapeHtml(ev.item_id || "(未記入)");
+    }
+  }
+  return "(出品の記録が見つかりません)";
+}
+
 function describeEvent(e) {
   switch (e.type) {
     case "balance.observed": return `残高 ${e.balance.toLocaleString()}pt`;
@@ -1643,7 +1672,9 @@ function describeEvent(e) {
       const each = e.qty > 1 ? `（1個${Math.round(e.price / e.qty).toLocaleString()}pt）` : "";
       return `出品${o}: ${escapeHtml(e.item_id)} ×${e.qty} 総額${e.price.toLocaleString()}pt${each}（手数料${e.fee}pt）`;
     }
-    case "sell.sold": return `売却: ×${e.qty} 総額${e.price.toLocaleString()}pt`;
+    case "sell.sold": return `売却: ${listedItemName(e.listing_id)} ×${e.qty} 総額${e.price.toLocaleString()}pt`;
+    case "sell.cancel": return `出品を取消: ${listedItemName(e.listing_id)}`;
+    case "sell.expired": return `出品が期限切れ: ${listedItemName(e.listing_id)}`;
     case "sell.cancel": return `出品取消`;
     case "sell.expired": return `期限切れ`;
     case "spend.cash": return `現金支出 ¥${e.amount_jpy}（${e.purpose}）`;
